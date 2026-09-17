@@ -1,0 +1,15 @@
+{
+  "starts": 8,
+  "seed": 35,
+  "max_nfev": 450,
+  "global_iterations": 100,
+  "loss": "soft_l1",
+  "backside": true,
+  "fit_scatter": false,
+  "gamma_eV": 0.02,
+  "step_eV": 0.01,
+  "cutoff_eV": 160.0,
+  "fixed": {},
+  "transition": "amorphous",
+  "tauc_window_eV": null
+}

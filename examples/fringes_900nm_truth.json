@@ -1,0 +1,19 @@
+{
+  "synthetic": true,
+  "note": "模擬資料；T/R 負噪音值歸零，非實測或第三方驗證。",
+  "parameters": {
+    "d_nm": 900,
+    "A_eV": 90,
+    "Eg_eV": 2.2,
+    "gap_eV": 1.3,
+    "C_eV": 1.5,
+    "tail_fraction": 0.06,
+    "scatter_q": 0.0,
+    "Ec_eV": 2.3320000000000003,
+    "E0_eV": 3.6320000000000006,
+    "Eu_eV": 0.06601326522931059
+  },
+  "gamma_eV": 0.02,
+  "noise_sigma": 0.0015,
+  "seed": 35
+}
