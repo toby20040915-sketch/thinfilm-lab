@@ -4,6 +4,7 @@ from io import BytesIO
 import hashlib
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 import numpy as np
@@ -16,6 +17,18 @@ from thinfilm.fit import FitConfig, DEFAULT_BOUNDS, fit_spectrum, thickness_prof
 from thinfilm.demo import simulate, CASES
 from thinfilm.analysis import compare_reference, envelope
 from thinfilm.report import figures, result_files, zip_files
+
+# Server-log-only provenance: never changes the analysis or its visible output.
+try:
+    _revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parent,
+        capture_output=True, text=True, timeout=3, check=True,
+    ).stdout.strip()
+    if len(_revision) == 40 and all(c in "0123456789abcdef" for c in _revision):
+        print(f"THINFILM_DEPLOYMENT commit={_revision}", flush=True)
+except (OSError, subprocess.SubprocessError):
+    # Git metadata may be absent from an exported ZIP; analysis remains usable.
+    print("THINFILM_DEPLOYMENT commit=unavailable", flush=True)
 
 st.set_page_config(page_title="薄膜光譜研究室", page_icon="🔬", layout="wide")
 st.title("薄膜光譜研究室")
