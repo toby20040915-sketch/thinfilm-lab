@@ -2,6 +2,7 @@
 from io import BytesIO
 import base64
 import html
+import hashlib
 import json
 import zipfile
 import os
@@ -14,13 +15,28 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
+def imported_figure(imported, minimum, maximum):
+    """Display every imported point in its original units, without smoothing."""
+    fig, ax = plt.subplots(figsize=(10, 3), constrained_layout=True)
+    raw = imported.raw_frame
+    for channel in imported.metadata["measured_channels"]:
+        ax.plot(raw.wavelength_nm.to_numpy(dtype=float), raw[channel].to_numpy(dtype=float),
+                label=channel+" measured (full raw spectrum)", linewidth=1)
+    ax.axvspan(minimum, maximum, color="#008c95", alpha=.12, label="Fitting range")
+    ax.set(xlabel="Wavelength (nm)", ylabel=imported.metadata["original_unit"],
+           title="Full imported spectrum")
+    ax.legend(fontsize=8)
+    return fig
+
+
 def figures(result):
     t = result.table
     plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False})
     fig, axes = plt.subplots(2, 2, figsize=(12, 8), constrained_layout=True)
     w = t.wavelength_nm
     for c, color in (("T", "#008c95"), ("R", "#cf7d2f")):
-        axes[0, 0].plot(w, t[c+"_fit"], color=color, label=c+" model")
+        label = c+" model" if c+"_measured" in t else "Model predicted "+c+" — not measured"
+        axes[0, 0].plot(w, t[c+"_fit"], color=color, label=label)
         if c+"_measured" in t:
             axes[0, 0].scatter(w, t[c+"_measured"], s=7, alpha=.4, color=color, label=c+" data")
             axes[1, 0].plot(w, t[c+"_residual"], color=color, label=c+" residual")
@@ -59,12 +75,25 @@ def _clean(value):
     return value
 
 
-def result_files(result, comparisons=None, profile=None):
+def result_files(result, comparisons=None, profile=None, *, imported=None, fit_range=None):
     summary = result.summary | {
         "tauc": {k: v for k, v in result.tauc.items() if k != "curve"},
         "envelope": {k: v for k, v in result.envelope.items() if k not in ("curve", "extrema")},
     }
+    if imported is not None:
+        if fit_range is None:
+            raise ValueError("匯出匯入紀錄時需提供 fitting range。")
+        selected = imported.select_fit_range(*fit_range)
+        selected_hash = hashlib.sha256(selected.frame().to_csv(index=False).encode("utf-8")).hexdigest()
+        if selected_hash != result.summary["normalized_input_sha256"]:
+            raise ValueError("匯入紀錄的 fitting range 與結果不一致。")
+        summary["data_intake"] = imported.selection_metadata(*fit_range)
     files = {"summary.json": json.dumps(_clean(summary), ensure_ascii=False, indent=2, allow_nan=False).encode("utf-8")}
+    if imported is not None:
+        files["raw_imported_spectrum.csv"] = imported.raw_frame.to_csv(index=False).encode("utf-8-sig")
+        files["normalized_full_spectrum.csv"] = imported.analysis.frame().to_csv(index=False).encode("utf-8-sig")
+        if imported.original_bytes is not None:
+            files["original_upload.txt"] = imported.original_bytes
     tables = {"optical_constants_and_fit": result.table, "multistart": result.starts,
               "local_uncertainty": result.uncertainty, "correlation": result.correlation.reset_index(),
               "envelope": result.envelope["curve"], "extrema": result.envelope["extrema"],

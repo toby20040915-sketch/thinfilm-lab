@@ -12,11 +12,11 @@ import pandas as pd
 import streamlit as st
 os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "thinfilm_matplotlib"))
 import matplotlib.pyplot as plt
-from thinfilm.data import SpectrumData
+from thinfilm.intake import ImportedSpectrum
 from thinfilm.fit import FitConfig, DEFAULT_BOUNDS, fit_spectrum, thickness_profile
 from thinfilm.demo import simulate, CASES
 from thinfilm.analysis import compare_reference, envelope
-from thinfilm.report import figures, result_files, zip_files
+from thinfilm.report import figures, imported_figure, result_files, zip_files
 
 # Server-log-only provenance: never changes the analysis or its visible output.
 try:
@@ -59,6 +59,7 @@ with st.sidebar:
         tb = st.number_input("Tauc 上限（eV）", min_value=.1, value=2.4)
 
 raw, truth, synthetic_params = None, None, None
+input_format, column_mapping = "header", None
 if mode.startswith("示範"):
     labels = {"ultrathin_60nm": "極薄膜 60 nm", "absorbing_180nm": "吸收薄膜 180 nm",
               "fringes_900nm": "干涉條紋 900 nm", "scattering_120nm": "含散射損失 120 nm"}
@@ -68,15 +69,26 @@ if mode.startswith("示範"):
     if case.startswith("scattering") and not fit_scatter:
         st.caption("此示範含散射衰減；可啟用左側散射擬合，比較模型選擇的影響。")
 else:
+    import_mode = st.selectbox("匯入格式", ["有表頭 CSV / TXT / TSV", "無表頭兩欄 T-only（教授量測格式）"])
+    if import_mode.startswith("無表頭"):
+        input_format = "no_header_t"
+        first_column = st.selectbox("第一欄", ["Wavelength (nm)"], index=None, placeholder="請指定第一欄")
+        second_column = st.selectbox("第二欄", ["Transmittance T"], index=None, placeholder="請指定第二欄")
+        if first_column and second_column:
+            column_mapping = ("wavelength_nm", "T")
+        st.caption("請明確指定兩欄，並在側欄選擇光譜單位「0–100 百分比」。支援 tab／空白分隔，不推測 T/R。")
     uploaded = st.file_uploader("上傳光譜 CSV", type=["csv", "txt", "tsv"])
-    st.caption("必填 wavelength_nm，以及 T 或 R。選填 sigma_T、sigma_R、substrate_n；提供基板色散欄位時優先採用。")
+    if input_format == "header":
+        st.caption("必填 wavelength_nm，以及 T 或 R。選填 sigma_T、sigma_R、substrate_n；提供基板色散欄位時優先採用。")
     if uploaded:
         raw = BytesIO(uploaded.getvalue())
 
 if raw is None:
     st.stop()
 try:
-    data = SpectrumData.from_csv(raw, "fraction" if mode.startswith("示範") or units.startswith("0–1 ") else "percent", substrate, sigma)
+    imported = ImportedSpectrum.from_source(raw,
+        "fraction" if mode.startswith("示範") or units.startswith("0–1 ") else "percent",
+        substrate, sigma, input_format=input_format, columns=column_mapping)
     bounds = dict(DEFAULT_BOUNDS)
     bounds["d_nm"] = d_bounds
     fixed = json.loads(fixed_text)
@@ -94,10 +106,46 @@ except (ValueError, TypeError) as exc:
     st.error(str(exc))
     st.stop()
 
-fingerprint = hashlib.sha256((data.frame().to_csv(index=False)+json.dumps(asdict(cfg), sort_keys=True)).encode()).hexdigest()
+meta = imported.metadata
+low, high = meta["imported_range_nm"]
+source_id = hashlib.sha256((imported.raw_frame.to_csv(index=False)+json.dumps(meta, sort_keys=True)).encode()).hexdigest()
+if st.session_state.get("range_source") != source_id:
+    st.session_state["fit_min_nm"], st.session_state["fit_max_nm"] = low, high
+    st.session_state["range_source"] = source_id
+st.subheader("匯入資料摘要")
+st.write(f"Imported: {low:g}–{high:g} nm · 量測點數：{meta['imported_point_count']}")
+st.write(f"Original wavelength order: {meta['original_wavelength_order']}")
+st.write(f"Original unit: {meta['original_unit']} · Analysis unit: fraction")
+channels = meta["measured_channels"]
+st.write("Measured channel: " + ", ".join(channels))
+if channels == ["T"]:
+    st.write("Spectrum channel: T-only · R measurement: Not provided")
+    st.warning("T-only 擬合比 R+T 聯合擬合包含較少的獨立光學資訊。最佳化收斂不代表參數具有唯一性；解讀前請檢查參數相關性、邊界敏感度及外部參考資料。")
+    st.caption("T-only fitting contains less independent optical information than joint R+T fitting. Optimizer convergence does not establish parameter uniqueness. Check parameter correlations, bounds sensitivity and external references before interpreting the fitted parameters.")
+for channel in channels:
+    vmin, vmax = meta[channel+"_original_min_max"]
+    st.write(f"{channel} min/max（原始單位 {meta['original_unit']}）: {vmin:g} / {vmax:g}")
+range_cols = st.columns(2)
+fit_min = range_cols[0].number_input("Fit wavelength min (nm)", key="fit_min_nm")
+fit_max = range_cols[1].number_input("Fit wavelength max (nm)", key="fit_max_nm")
+with st.expander("完整原始資料（原始順序與單位）"):
+    st.dataframe(imported.raw_frame, hide_index=True)
+if imported.original_bytes is not None:
+    st.download_button("下載原始上傳檔（未變更）", imported.original_bytes, "original_upload.txt", "application/octet-stream")
+try:
+    data = imported.select_fit_range(fit_min, fit_max)
+    intake_metadata = imported.selection_metadata(fit_min, fit_max)
+except ValueError as exc:
+    st.error(str(exc))
+    st.stop()
+st.write(f"Used for fitting: {fit_min:g}–{fit_max:g} nm · 使用點數：{len(data.wavelength)}")
+st.caption("範圍含上下限；完整匯入資料保留，只有範圍內量測點參與擬合。")
+fingerprint = hashlib.sha256((imported.analysis.frame().to_csv(index=False)+json.dumps(intake_metadata, sort_keys=True)+json.dumps(asdict(cfg), sort_keys=True)).encode()).hexdigest()
 left, right = st.columns([2, 1])
 with left:
-    st.line_chart(data.frame().set_index("wavelength_nm")[[c for c in ("T", "R") if getattr(data, c) is not None]], height=250)
+    raw_fig = imported_figure(imported, fit_min, fit_max)
+    st.pyplot(raw_fig)
+    plt.close(raw_fig)
 with right:
     st.metric("量測點數", len(data.wavelength))
     st.write(f"波長 {data.wavelength.min():.1f}–{data.wavelength.max():.1f} nm")
@@ -105,7 +153,7 @@ with right:
     st.caption(env["reason"])
     if env["d_nm"]:
         st.write(f"傳統包絡法初估：{env['d_nm']:.2f} nm")
-    st.download_button("下載目前光譜 CSV", data.frame().to_csv(index=False).encode("utf-8-sig"), "spectrum.csv", "text/csv")
+    st.download_button("下載完整分析光譜 CSV（fraction／ascending）", imported.analysis.frame().to_csv(index=False).encode("utf-8-sig"), "spectrum.csv", "text/csv")
 
 if st.button("開始全光譜分析", type="primary"):
     bar = st.progress(0., text="建立模型並搜尋初始值…")
@@ -140,6 +188,8 @@ with tabs[0]:
     st.pyplot(fig)
     plt.close(fig)
     st.caption("圖中的 T、R 模型曲線都會顯示；只有已提供的量測通道參與擬合。")
+    if data.R is None:
+        st.caption("Model predicted R — not measured（模型預測 R，非量測）")
     st.write(result.tauc["reason"])
     st.caption(result.tauc["source"])
     st.dataframe(result.table, hide_index=True)
@@ -189,7 +239,8 @@ with tabs[2]:
             st.dataframe(metrics, hide_index=True)
             comparisons.append(("synthetic_truth", metrics, errors))
 with tabs[3]:
-    files = result_files(result, comparisons, st.session_state.get("profile"))
+    files = result_files(result, comparisons, st.session_state.get("profile"),
+                         imported=imported, fit_range=(fit_min, fit_max))
     st.download_button("下載完整結果 ZIP", zip_files(files), "thinfilm_result.zip", "application/zip", type="primary")
     st.download_button("下載可離線閱讀的報告", files["report.html"], "report.html", "text/html")
     st.download_button("下載 n、k 與擬合光譜", files["optical_constants_and_fit.csv"], "optical_constants_and_fit.csv", "text/csv")
