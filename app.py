@@ -32,6 +32,8 @@ except (OSError, subprocess.SubprocessError):
 
 st.set_page_config(page_title="薄膜光譜研究室", page_icon="🔬", layout="wide")
 st.title("薄膜光譜研究室")
+st.caption("Spectrum Analysis")
+st.page_link("pages/1_Forward_Model_Validation.py", label="Forward Model Validation（已知 n/k 的獨立驗證工具）")
 st.caption("修正包絡法 · ATLU 全光譜擬合 · Tauc 能隙 · 交叉驗證")
 st.info("適用：空氣／均勻單層薄膜／透明厚基板，正入射量測。請使用絕對 T、R；若儀器已用裸基板歸一化，需先還原。")
 

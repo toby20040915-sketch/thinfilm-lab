@@ -73,3 +73,10 @@ python benchmark.py
 ```
 
 模型參考：[Ballester et al. (2022)](https://doi.org/10.3390/coatings12101549)；[Byrnes, Multilayer optical calculations](https://arxiv.org/abs/1603.02720)。
+
+## Forward Model Validation / Essential Macleod exchange
+
+使用獨立的 **Forward Model Validation** 頁面或 `thinfilm.validation` API，直接以已知 n/k、厚度及 substrate n 呼叫現有 propagation solver。限 0°，不修改 ATLU 或 fitting。
+內建 A–E 案例、手動 Macleod exchange ZIP、明確單位的 reference importer、共同範圍內插選項、R/T 分別的指標及可設定工程門檻。完整設定與檔案契約見 [Macleod validation workflow](docs/MACLEOD_VALIDATION.md)。
+
+目前狀態：**Ready for Essential Macleod comparison**。沒有隨附真實 Macleod data；synthetic round-trip／independent tmm tests 不等同已通過 Macleod 驗證。
