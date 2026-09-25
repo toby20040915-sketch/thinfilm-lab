@@ -38,3 +38,25 @@ def test_custom_nk_UI_routes_direct_forward(monkeypatch):
     next(s for s in app.selectbox if s.label == "Forward input").set_value("Custom known n/k CSV").run()
     assert not app.exception and not app.error
     assert app.dataframe[0].value.film_n.tolist() == [2., 2.1, 2.2]
+
+
+def test_native_reference_ui_displays_provenance_before_comparison(monkeypatch):
+    raw = (Path(__file__).parent / "fixtures" / "synthetic_macleod_performance.csv").read_bytes()
+    uploaded = BytesIO(raw)
+    uploaded.name = "synthetic_macleod_performance.csv"
+    monkeypatch.setattr(st, "file_uploader", lambda label, **kw: uploaded)
+    app = AppTest.from_file(str(Path(__file__).parents[1]/"pages"/"1_Forward_Model_Validation.py")).run()
+    next(s for s in app.selectbox if s.label == "Reference R/T unit").set_value("percent")
+    next(s for s in app.selectbox if s.label == "Reference wavelength unit").set_value("nm")
+    app.run()
+    assert not app.exception
+    text = "\n".join(element.value for element in app.markdown)
+    assert "Essential Macleod Performance CSV" in text
+    assert "Wavelength  (nm) → wavelength" in text
+    assert "Reflectance (%) → R" in text
+    assert "Transmittance (%) → T" in text
+    assert "Reflectance-Phase (deg)" in text
+    assert "Reference points: 3" in text
+    assert "Reference wavelength: 400–420 nm" in text
+    assert "Alignment: exact" in text
+    assert not any("PASS" in element.value for element in app.info)

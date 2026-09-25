@@ -46,7 +46,7 @@ with st.expander("人工 Macleod 設定與 exchange 說明"):
     st.markdown((Path(__file__).resolve().parents[1]/"docs"/"MACLEOD_VALIDATION.md").read_text(encoding="utf-8"))
 
 st.subheader("Macleod reference import / comparison")
-st.caption("將 Macleod 匯出轉成有表頭 CSV：wavelength,R,T。保留原始 Macleod 檔與設定紀錄；此處保留實際上傳 bytes。")
+st.caption("可直接上傳 Essential Macleod Performance CSV，或使用 wavelength,R,T 有表頭 CSV。請明確選擇單位；原始上傳 bytes 會保留。")
 unit = st.selectbox("Reference R/T unit", ["fraction", "percent"], index=None)
 wunit = st.selectbox("Reference wavelength unit", ["nm", "um"], index=None)
 alignment = st.selectbox("Wavelength grid alignment", ["exact", "interpolate"],
@@ -67,7 +67,22 @@ if unit is None or wunit is None:
     st.error("請明確指定 reference 的 R/T 與 wavelength 單位。")
     st.stop()
 try:
-    reference = import_reference(ref_file.getvalue(), spectrum_unit=unit, wavelength_unit=wunit)
+    reference = import_reference(ref_file.getvalue(), spectrum_unit=unit, wavelength_unit=wunit,
+                                 filename=getattr(ref_file, "name", None))
+except (ValueError, TypeError) as exc:
+    st.error(str(exc))
+    st.stop()
+st.write("Reference source format: " + reference.metadata["source_format"])
+st.write("Original filename: " + str(reference.metadata["original_filename"] or "unavailable"))
+st.write("Column mapping:")
+for original, normalized in reference.metadata["column_mapping"].items():
+    st.write(f"{original} → {normalized}")
+st.write("Ignored for R/T comparison: " +
+         (", ".join(reference.metadata["ignored_columns"]) or "None"))
+st.write(f"Reference points: {len(reference.analysis)}")
+st.write(f"Reference wavelength: {reference.analysis.wavelength_nm.min():g}–{reference.analysis.wavelength_nm.max():g} nm")
+st.write(f"Reference R/T unit: {unit} · Reference wavelength unit: {wunit} · Alignment: {alignment}")
+try:
     comparison = compare(run, reference, alignment=alignment, tolerance=tol, tolerance_reason=reason)
 except (ValueError, TypeError) as exc:
     st.error(str(exc))

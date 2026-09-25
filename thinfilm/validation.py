@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from io import BytesIO
 import hashlib
 import json
+import re
 import zipfile
 import numpy as np
 import pandas as pd
@@ -79,26 +80,60 @@ class Reference:
     metadata: dict
 
 
-def import_reference(raw, *, spectrum_unit, wavelength_unit):
-    """Explicit header contract: wavelength,R,T. Original bytes remain untouched."""
+def reference_columns(columns, spectrum_unit, wavelength_unit):
+    """Map an explicit canonical or native Performance Table header, never data values."""
+    native = {
+        "wavelength": re.compile(r"wavelength\s*\((nm|um)\)", re.I),
+        "R": re.compile(r"reflectance\s*\((%|fraction)\)", re.I),
+        "T": re.compile(r"transmittance\s*\((%|fraction)\)", re.I),
+    }
+    matches = {key: [] for key in native}
+    for column in columns:
+        base = re.sub(r"\.\d+$", "", column)  # pandas disambiguates repeated CSV headers this way
+        for key, pattern in native.items():
+            if base == key or pattern.fullmatch(base):
+                matches[key].append(column)
+    if any(len(found) != 1 for found in matches.values()):
+        raise ValueError("Reference requires exactly one wavelength, R and T column; missing or ambiguous columns are not allowed.")
+    mapping = {found[0]: key for key, found in matches.items()}
+    canonical = set(mapping) == {"wavelength", "R", "T"}
+    if not canonical and any(column in ("wavelength", "R", "T") for column in mapping):
+        raise ValueError("Do not mix canonical and Essential Macleod reference columns.")
+    if not canonical:
+        for column, key in mapping.items():
+            match = native[key].fullmatch(column)
+            declared = match.group(1).lower() if match else None
+            expected = wavelength_unit if key == "wavelength" else ("%" if spectrum_unit == "percent" else "fraction")
+            if declared != expected:
+                raise ValueError(f"Reference header {column!r} conflicts with selected {key} unit {expected!r}.")
+    ignored = [column for column in columns if column not in mapping]
+    return ("Canonical wavelength,R,T CSV" if canonical else "Essential Macleod Performance CSV"), mapping, ignored
+
+
+def import_reference(raw, *, spectrum_unit, wavelength_unit, filename=None):
+    """Accept canonical or native Performance CSV; preserve original bytes and columns."""
     if spectrum_unit not in ("fraction", "percent") or wavelength_unit not in ("nm", "um"):
         raise ValueError("Specify spectrum unit fraction/percent and wavelength unit nm/um.")
     raw = bytes(raw)
     frame = read_table(BytesIO(raw))
-    data = numeric_grid(frame, ["wavelength", "R", "T"])
+    source_format, mapping, ignored = reference_columns(frame.columns, spectrum_unit, wavelength_unit)
+    data = numeric_grid(frame.rename(columns=mapping), ["wavelength", "R", "T"])
     scale = 100. if spectrum_unit == "percent" else 1.
     if ((data[["R", "T"]] < 0) | (data[["R", "T"]] > scale)).any().any():
         raise ValueError("Reference R/T must lie within the declared unit range.")
     data[["R", "T"]] /= scale
     data["wavelength"] *= 1000. if wavelength_unit == "um" else 1.
     data = data.rename(columns={"wavelength": "wavelength_nm"})
-    original_w = pd.to_numeric(frame.wavelength)
+    original_w = pd.to_numeric(frame[next(column for column, key in mapping.items() if key == "wavelength")])
     order = "ascending" if original_w.is_monotonic_increasing else (
         "descending" if original_w.is_monotonic_decreasing else "unsorted")
     return Reference(raw, frame.copy(deep=True), data,
         dict(original_spectrum_unit=spectrum_unit, original_wavelength_unit=wavelength_unit,
              analysis_spectrum_unit="fraction", analysis_wavelength_unit="nm",
-             original_order=order, sha256=hashlib.sha256(raw).hexdigest()))
+             original_order=order, sha256=hashlib.sha256(raw).hexdigest(),
+             original_filename=filename, source_format=source_format,
+             original_columns=list(frame.columns), column_mapping=mapping,
+             ignored_columns=ignored))
 
 
 def compare(run, reference, *, alignment="exact", tolerance, tolerance_reason):
@@ -133,17 +168,17 @@ def compare(run, reference, *, alignment="exact", tolerance, tolerance_reason):
         alignment="identical grid" if same else "linear reference interpolation onto program grid; overlap only",
         requested_alignment=alignment, overlap_nm=[float(low), float(high)],
         compared_points=len(selected), excluded_program_points=len(p)-len(selected),
-        reference=reference.metadata)
+        reference=reference.metadata | {"alignment_method": alignment})
     return selected.reset_index(drop=True), report
 
 
 def bundle(run, *, revision="unavailable", reference=None, comparison=None):
-    """Portable exchange, not a claim of native Macleod file compatibility."""
+    """Portable exchange and raw reference evidence."""
     files = {"program.csv": run.table.to_csv(index=False),
              "metadata.json": json.dumps(run.metadata | {"program_revision": revision}, indent=2),
              "README.txt": "Manual Essential Macleod exchange. See docs/MACLEOD_VALIDATION.md.\n"
              "Match n/k, thickness, wavelength grid, 0 degrees and backside/coherence assumptions exactly.\n"
-             "Reference header: wavelength,R,T. Explicit units are required on import.\n"
+             "Reference accepts wavelength,R,T or native Essential Macleod Performance CSV. Explicit units are required.\n"
              "No actual Macleod benchmark is supplied with the synthetic cases.\n"}
     if reference is not None:
         files["reference_original.csv"] = reference.raw_bytes

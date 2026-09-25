@@ -1,5 +1,6 @@
 """Synthetic/analytical benchmarks; NOT actual Essential Macleod evidence."""
 from io import BytesIO
+from pathlib import Path
 import json
 import zipfile
 import numpy as np
@@ -137,4 +138,68 @@ def test_invalid_criterion(tol, reason):
     (b"wavelength,R,T\n400,.1,.8\n500,.2,.7", "fraction", "auto")])
 def test_invalid_reference(raw, unit, wunit):
     with pytest.raises(ValueError):
+        import_reference(raw, spectrum_unit=unit, wavelength_unit=wunit)
+
+
+def test_native_macleod_header_mapping_phase_and_provenance():
+    raw = (Path(__file__).parent / "fixtures" / "synthetic_macleod_performance.csv").read_bytes()
+    ref = import_reference(raw, spectrum_unit="percent", wavelength_unit="nm",
+                           filename="synthetic_macleod_performance.csv")
+    assert ref.raw_bytes == raw
+    assert ref.metadata["original_filename"] == "synthetic_macleod_performance.csv"
+    assert ref.metadata["source_format"] == "Essential Macleod Performance CSV"
+    assert ref.metadata["original_columns"] == ["Wavelength  (nm)", "Reflectance (%)",
+        "Transmittance (%)", "Reflectance-Phase (deg)", "Transmittance-Phase (deg)"]
+    assert ref.metadata["column_mapping"] == {
+        "Wavelength  (nm)": "wavelength", "Reflectance (%)": "R", "Transmittance (%)": "T"}
+    assert ref.metadata["ignored_columns"] == ["Reflectance-Phase (deg)", "Transmittance-Phase (deg)"]
+    assert ref.analysis.columns.tolist() == ["wavelength_nm", "R", "T"]
+    assert ref.analysis.R.tolist() == pytest.approx([.04, .05, .07])
+    assert ref.analysis["T"].tolist() == pytest.approx([.96, .95, .93])
+    with zipfile.ZipFile(BytesIO(bundle(example_case("B — Transparent film"), reference=ref))) as archive:
+        assert archive.read("reference_original.csv") == raw
+        evidence = json.loads(archive.read("reference_metadata.json"))
+        assert evidence["original_filename"] == "synthetic_macleod_performance.csv"
+        assert evidence["column_mapping"] == ref.metadata["column_mapping"]
+
+
+def test_native_61_point_grid_exact_alignment_without_claiming_external_validation():
+    run = example_case("B — Transparent film")
+    lines = ["Wavelength  (nm),Reflectance (%),Transmittance (%),Reflectance-Phase (deg),Transmittance-Phase (deg)"]
+    for row in run.table.itertuples():
+        lines.append(f"{row.wavelength_nm:g},{row.Program_R*100:.14g},{row.Program_T*100:.14g},0,0")
+    raw = ("\n".join(lines) + "\n").encode()
+    ref = import_reference(raw, spectrum_unit="percent", wavelength_unit="nm")
+    table, report = compare(run, ref, alignment="exact", tolerance=1e-4,
+                            tolerance_reason="synthetic parser regression")
+    assert len(ref.analysis) == len(table) == 61
+    assert ref.analysis.wavelength_nm.tolist() == list(range(400, 1001, 10))
+    assert report["reference"]["alignment_method"] == "exact"
+    assert report["compared_points"] == 61
+    assert ref.raw_bytes == raw
+
+
+@pytest.mark.parametrize("header", [
+    "Wavelength  (nm),Transmittance (%),Transmittance-Phase (deg)",
+    "Wavelength  (nm),Reflectance (%),Reflectance-Phase (deg)",
+    "Wavelength  (nm),Reflectance (%),R,Transmittance (%)",
+    "Wavelength  (nm),Reflectance (%),Transmittance (%),T",
+    "Wavelength  (nm),Reflectance (%),Reflectance (%),Transmittance (%)",
+])
+def test_native_missing_malformed_or_ambiguous_columns_rejected(header):
+    raw = (header + "\n400,4,96\n410,5,95\n").encode()
+    with pytest.raises(ValueError):
+        import_reference(raw, spectrum_unit="percent", wavelength_unit="nm")
+
+
+def test_native_malformed_numeric_row_rejected():
+    raw = b"Wavelength  (nm),Reflectance (%),Transmittance (%)\n400,not-a-number,96\n410,5,95\n"
+    with pytest.raises(ValueError):
+        import_reference(raw, spectrum_unit="percent", wavelength_unit="nm")
+
+
+@pytest.mark.parametrize("unit,wunit", [("fraction", "nm"), ("percent", "um")])
+def test_native_header_unit_conflict_rejected(unit, wunit):
+    raw = (Path(__file__).parent / "fixtures" / "synthetic_macleod_performance.csv").read_bytes()
+    with pytest.raises(ValueError, match="conflicts"):
         import_reference(raw, spectrum_unit=unit, wavelength_unit=wunit)
