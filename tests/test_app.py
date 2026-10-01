@@ -15,11 +15,11 @@ def test_demo_app_fit_export_and_stale_result_guard():
     assert any("薄膜厚度" in metric.label for metric in app.metric)
     assert app.session_state["result"].summary["optimizer_success"]
     assert abs(app.session_state["result"].parameters.d_nm - 60) < .1
-    next(n for n in app.number_input if n.label == "Fit wavelength min (nm)").set_value(400.)
+    next(n for n in app.number_input if n.label == "Fit wavelength min（擬合波長下限，nm）").set_value(400.)
     app.run()
     assert any("已變更" in w.value for w in app.warning)
     assert not any("薄膜厚度" in metric.label for metric in app.metric)
-    next(n for n in app.number_input if n.label == "Fit wavelength min (nm)").set_value(300.)
+    next(n for n in app.number_input if n.label == "Fit wavelength min（擬合波長下限，nm）").set_value(300.)
     app.run()
     for number in app.number_input:
         if number.label == "Gamma（eV，固定）":
@@ -52,17 +52,17 @@ def test_professor_intake_UI_subsets_before_fitting(monkeypatch):
     app.run()
     assert not app.exception and not app.error
     text = " ".join(m.value for m in app.markdown)
-    assert "Original wavelength order: descending" in text
-    assert "R measurement: Not provided" in text
-    assert "Original unit: percent" in text
-    next(n for n in app.number_input if n.label == "Fit wavelength min (nm)").set_value(1980.)
-    next(n for n in app.number_input if n.label == "Fit wavelength max (nm)").set_value(1995.)
+    assert "Original wavelength order（原始波長順序）: descending（遞減）" in text
+    assert "R measurement（R 量測）: Not provided（未提供）" in text
+    assert "Original unit（原始單位）: percent（百分比）" in text
+    next(n for n in app.number_input if n.label == "Fit wavelength min（擬合波長下限，nm）").set_value(1980.)
+    next(n for n in app.number_input if n.label == "Fit wavelength max（擬合波長上限，nm）").set_value(1995.)
     app.run()
     next(b for b in app.button if b.label == "開始全光譜分析").click().run()
     assert not app.exception
     assert received[0].wavelength.tolist() == list(range(1980, 1996))
     assert received[0].R is None
     assert len(app.dataframe[0].value) == 24
-    next(n for n in app.number_input if n.label == "Fit wavelength min (nm)").set_value(1995.)
+    next(n for n in app.number_input if n.label == "Fit wavelength min（擬合波長下限，nm）").set_value(1995.)
     app.run()
     assert app.error and not any(b.label == "開始全光譜分析" for b in app.button)
