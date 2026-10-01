@@ -45,6 +45,39 @@ def test_bare_transparent_absorbing_and_backside_pair():
     assert np.allclose(off_bare.Program_T, .96)
 
 
+def test_case_b_matches_semi_infinite_macleod_conditions_and_calls_solver(monkeypatch):
+    import thinfilm.validation as validation
+
+    name = "B — Transparent film / semi-infinite substrate"
+    original_solver = validation.spectrum
+    calls = []
+
+    def observed_solver(wavelength, n, k, thickness, substrate_n, backside):
+        calls.append((wavelength.copy(), n.copy(), k.copy(), thickness,
+                      substrate_n.copy(), backside))
+        return original_solver(wavelength, n, k, thickness, substrate_n, backside)
+
+    monkeypatch.setattr(validation, "spectrum", observed_solver)
+    run = validation.example_case(name)
+    assert len(calls) == 1
+    wavelength, n, k, thickness, substrate_n, backside = calls[0]
+    assert not backside and not run.metadata["backside_enabled"]
+    assert np.array_equal(wavelength, np.arange(400, 1001, 10))
+    assert len(wavelength) == len(run.table) == 61
+    assert np.all(n == 2) and np.all(k == 0)
+    assert thickness == 300 and np.all(run.table.thickness_nm == 300)
+    assert np.all(substrate_n == 1.5)
+    assert run.metadata["exit_medium"] == "semi-infinite substrate"
+    assert run.metadata["substrate_coherence"] == "semi-infinite; no rear interface"
+    assert run.metadata["film_coherence"] == "coherent"
+    assert run.metadata["incidence_angle_deg"] == 0
+    assert np.allclose(run.table.Program_R + run.table.Program_T, 1)
+    assert CASES["A — Bare substrate / zero film"] == (2., 0., 0., True)
+    assert CASES["C — Absorbing film"] == (2.3, .15, 120., True)
+    assert CASES["D — Backside OFF"] == (2.3, .15, 120., False)
+    assert CASES["E — Backside ON"] == (2.3, .15, 120., True)
+
+
 def test_dispersive_direct_input_sorted_without_atlu(monkeypatch):
     import thinfilm.physics
     monkeypatch.setattr(thinfilm.physics.ATLU, "nk", lambda *a: pytest.fail("ATLU called"))
@@ -156,7 +189,7 @@ def test_native_macleod_header_mapping_phase_and_provenance():
     assert ref.analysis.columns.tolist() == ["wavelength_nm", "R", "T"]
     assert ref.analysis.R.tolist() == pytest.approx([.04, .05, .07])
     assert ref.analysis["T"].tolist() == pytest.approx([.96, .95, .93])
-    with zipfile.ZipFile(BytesIO(bundle(example_case("B — Transparent film"), reference=ref))) as archive:
+    with zipfile.ZipFile(BytesIO(bundle(example_case("B — Transparent film / semi-infinite substrate"), reference=ref))) as archive:
         assert archive.read("reference_original.csv") == raw
         evidence = json.loads(archive.read("reference_metadata.json"))
         assert evidence["original_filename"] == "synthetic_macleod_performance.csv"
@@ -164,7 +197,7 @@ def test_native_macleod_header_mapping_phase_and_provenance():
 
 
 def test_native_61_point_grid_exact_alignment_without_claiming_external_validation():
-    run = example_case("B — Transparent film")
+    run = example_case("B — Transparent film / semi-infinite substrate")
     lines = ["Wavelength  (nm),Reflectance (%),Transmittance (%),Reflectance-Phase (deg),Transmittance-Phase (deg)"]
     for row in run.table.itertuples():
         lines.append(f"{row.wavelength_nm:g},{row.Program_R*100:.14g},{row.Program_T*100:.14g},0,0")

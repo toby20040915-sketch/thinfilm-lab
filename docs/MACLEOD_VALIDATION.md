@@ -19,7 +19,7 @@
 | Case | Film n | Film k | d (nm) | Backside | 用途 |
 |---|---:|---:|---:|---|---|
 | A | 2 | 0 | 0 | ON | 零膜厚極限：等價裸基板 |
-| B | 2 | 0 | 300 | ON | 干涉與 R+T=1 |
+| B | 2 | 0 | 300 | OFF | 半無限基板；對應目前 Macleod transparent-film reference |
 | C | 2.3 | 0.15 | 120 | ON | 吸收：A=1−R−T>0 |
 | D | 2.3 | 0.15 | 120 | OFF | 半無限基板 |
 | E | 2.3 | 0.15 | 120 | ON | 與 D 成對隔離 backside 影響；刻意與 C 相同 |

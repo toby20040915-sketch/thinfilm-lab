@@ -14,7 +14,7 @@ from .physics import spectrum
 INPUT_COLUMNS = ["wavelength_nm", "film_n", "film_k", "substrate_n"]
 CASES = {
     "A — Bare substrate / zero film": (2., 0., 0., True),
-    "B — Transparent film": (2., 0., 300., True),
+    "B — Transparent film / semi-infinite substrate": (2., 0., 300., False),
     "C — Absorbing film": (2.3, .15, 120., True),
     "D — Backside OFF": (2.3, .15, 120., False),
     "E — Backside ON": (2.3, .15, 120., True),

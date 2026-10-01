@@ -3,6 +3,9 @@ gatherUsageStats = false
 
 [server]
 maxUploadSize = 10
+# Streamlit's hot-reload module eviction can race with multipage imports.
+# Load each published revision in a fresh process instead.
+fileWatcherType = "none"
 
 [theme]
 primaryColor = "#008c95"

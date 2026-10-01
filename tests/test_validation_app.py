@@ -60,3 +60,16 @@ def test_native_reference_ui_displays_provenance_before_comparison(monkeypatch):
     assert "Reference wavelength: 400–420 nm" in text
     assert "Alignment: exact" in text
     assert not any("PASS" in element.value for element in app.info)
+
+
+def test_case_b_conditions_are_visible_before_reference_upload():
+    app = AppTest.from_file(str(Path(__file__).parents[1]/"pages"/"1_Forward_Model_Validation.py")).run()
+    next(s for s in app.selectbox if s.label == "Forward input").set_value(
+        "B — Transparent film / semi-infinite substrate").run()
+    assert not app.exception and not app.error
+    text = "\n".join(element.value for element in app.markdown)
+    assert "Backside: OFF" in text
+    assert "Substrate treatment: semi-infinite; no rear interface" in text
+    assert "Film coherence: coherent" in text
+    assert "Incident angle: 0°" in text
+    assert "Polarization: S/P equivalent at normal incidence" in text

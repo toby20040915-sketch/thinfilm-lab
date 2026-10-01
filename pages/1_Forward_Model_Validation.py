@@ -36,6 +36,11 @@ if source == "Custom known n/k CSV":
         st.stop()
 else:
     run = example_case(source)
+st.write("Backside: " + ("ON" if run.metadata["backside_enabled"] else "OFF"))
+st.write("Substrate treatment: " + run.metadata["substrate_coherence"])
+st.write("Film coherence: " + run.metadata["film_coherence"])
+st.write(f"Incident angle: {run.metadata['incidence_angle_deg']:g}°")
+st.write("Polarization: S/P equivalent at normal incidence")
 st.json(run.metadata, expanded=False)
 st.dataframe(run.table, hide_index=True)
 st.line_chart(run.table.set_index("wavelength_nm")[["Program_R", "Program_T", "Program_A"]],
